@@ -267,7 +267,7 @@ def test_generated_signature_descriptor_and_reader_agree(tmp_path, record_proper
     from test_persistent_config_generation import _config
     from tensilelite.Common.Types import DebugConfig
     from tensilelite.KernelWriterAssembly import KernelWriterAssembly
-    from tensilelite.TensileCreateLibrary.Run import generateKernelObjectsFromSolutions
+    from tensilelite.create_library.run import generateKernelObjectsFromSolutions
 
     config = _config({"TileProcessingStrategy": [strategy], "WorkAssignment": ["StaticGrid"]})
     if strategy == "StreamK":
@@ -357,7 +357,7 @@ def test_codegen_rejects_invalid_data_parallel_descriptor(monkeypatch, tmp_path)
     from test_persistent_config_generation import _config
     from tensilelite.Common.Types import DebugConfig
     from tensilelite.KernelWriterAssembly import KernelWriterAssembly
-    from tensilelite.TensileCreateLibrary.Run import generateKernelObjectsFromSolutions
+    from tensilelite.create_library.run import generateKernelObjectsFromSolutions
 
     config = _config({"TileProcessingStrategy": ["DataParallel"], "WorkAssignment": ["StaticGrid"]})
     path = tmp_path / "data_parallel.yaml"

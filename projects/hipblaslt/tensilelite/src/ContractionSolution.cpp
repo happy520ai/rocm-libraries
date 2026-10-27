@@ -164,6 +164,8 @@ namespace TensileLite
         case CustomGridSize::TilesXYBatchGSU:  return "TilesXYBatchGSU";
         case CustomGridSize::TilesYGSU:        return "TilesYGSU";
         case CustomGridSize::ComputeUnits:     return "ComputeUnits";
+        case CustomGridSize::TilesWide:        return "TilesWide";
+        case CustomGridSize::TilesSkinny:      return "TilesSkinny";
         case CustomGridSize::CustomGridSize_Count:
             break;
         }
@@ -188,6 +190,8 @@ namespace TensileLite
             {"TilesXYBatchGSU",  CustomGridSize::TilesXYBatchGSU},
             {"TilesYGSU",        CustomGridSize::TilesYGSU},
             {"ComputeUnits",     CustomGridSize::ComputeUnits},
+            {"TilesWide",        CustomGridSize::TilesWide},
+            {"TilesSkinny",      CustomGridSize::TilesSkinny},
         };
 
         auto it = lookup.find(str);
@@ -2553,20 +2557,28 @@ namespace TensileLite
         }
     }
 
+    void ContractionSolution::calculateFreeExtents(size_t& extentX,
+                                                   size_t& extentY,
+                                                   ContractionSolution::Problem const& problem) const
+    {
+        extentX = 1;
+        extentY = 1;
+
+        for(size_t i = 0; i < problem.freeIndicesA().size(); i++)
+            extentX *= problem.freeSizeA(i);
+        for(size_t i = 0; i < problem.freeIndicesB().size(); i++)
+            extentY *= problem.freeSizeB(i);
+
+        if(problem.transposeC01())
+            std::swap(extentX, extentY);
+    }
+
     void ContractionSolution::calculateTiles(dim3& tiles,
                                              ContractionSolution::Problem const& problem) const
     {
-        tiles.x = 1;
-        tiles.y = 1;
-
-        for(size_t i = 0; i < problem.freeIndicesA().size(); i++)
-        {
-            tiles.x *= problem.freeSizeA(i);
-        }
-        for(size_t i = 0; i < problem.freeIndicesB().size(); i++)
-        {
-            tiles.y *= problem.freeSizeB(i);
-        }
+        size_t extentX;
+        size_t extentY;
+        calculateFreeExtents(extentX, extentY, problem);
 
         tiles.z = 1;
         for(size_t i = 0; i < problem.batchIndices().size(); i++)
@@ -2579,11 +2591,22 @@ namespace TensileLite
                 tiles.z *= problem.batchSize(i);
         }
 
-        if(problem.transposeC01())
-            std::swap(tiles.x, tiles.y);
+        tiles.x = CeilDivide(extentX, customKernel.macrotile.x);
+        tiles.y = CeilDivide(extentY, customKernel.macrotile.y);
+    }
 
-        tiles.x = CeilDivide(tiles.x, customKernel.macrotile.x);
-        tiles.y = CeilDivide(tiles.y, customKernel.macrotile.y);
+    // The macrotile is oriented along (wide, skinny) rather than (m, n), so one
+    // kernel serves a skinny-n and a skinny-m problem alike.
+    void ContractionSolution::calculateWideSkinnyTiles(size_t& tilesWide,
+                                                       size_t& tilesSkinny,
+                                                       ContractionSolution::Problem const& problem) const
+    {
+        size_t extentX;
+        size_t extentY;
+        calculateFreeExtents(extentX, extentY, problem);
+
+        tilesWide   = CeilDivide(std::max(extentX, extentY), customKernel.macrotile.x);
+        tilesSkinny = CeilDivide(std::min(extentX, extentY), customKernel.macrotile.y);
     }
 
     void ContractionSolution::calculateGrid(dim3&                               workGroupSize,
@@ -2860,6 +2883,9 @@ namespace TensileLite
 
         dim3 tiles;
         calculateTiles(tiles, problem);
+        size_t tilesWide;
+        size_t tilesSkinny;
+        calculateWideSkinnyTiles(tilesWide, tilesSkinny, problem);
 
         uint32_t autoGsuVal = calculateAutoGSU(problem, &hardware);
         uint32_t gsu = problem.getParams().gsu() > 0 ? problem.getParams().gsu() : autoGsuVal;
@@ -2954,6 +2980,12 @@ namespace TensileLite
                 case CustomGridSize::TilesXYBatch:
                     dim = tiles.x * tiles.y * tiles.z;
                     break;
+                case CustomGridSize::TilesWide:
+                    dim = tilesWide;
+                    break;
+                case CustomGridSize::TilesSkinny:
+                    dim = tilesSkinny;
+                    break;
                 case CustomGridSize::TilesXYBatchGSU:
                     dim = tiles.x * tiles.y * tiles.z * (gsu > 0 ? gsu : 1);
                     break;
@@ -2999,6 +3031,8 @@ namespace TensileLite
             case CustomGridSize::Batch:
             case CustomGridSize::TilesXY:
             case CustomGridSize::TilesXYBatch:
+            case CustomGridSize::TilesWide:
+            case CustomGridSize::TilesSkinny:
                 return true;
             default:
                 return false;
@@ -3556,6 +3590,21 @@ namespace TensileLite
                     if(!appendedInternalArgs)
                         rv.args.appendCustomType("NumWorkGroups", getNumWorkGroups(rv), arg.type);
                     break; // handled by InternalArgs via kernelArgs when present
+                // rv.numWorkGroups is final here: the cluster and NumWorkGroups
+                // flattening paths both run before this switch and nothing below
+                // touches it, so these report the grid that is actually launched.
+                case CustomArgSemantic::NumWorkGroupsX:
+                    rv.args.appendCustomType(
+                        "NumWorkGroupsX", static_cast<uint32_t>(rv.numWorkGroups.x), arg.type);
+                    break;
+                case CustomArgSemantic::NumWorkGroupsY:
+                    rv.args.appendCustomType(
+                        "NumWorkGroupsY", static_cast<uint32_t>(rv.numWorkGroups.y), arg.type);
+                    break;
+                case CustomArgSemantic::NumWorkGroupsZ:
+                    rv.args.appendCustomType(
+                        "NumWorkGroupsZ", static_cast<uint32_t>(rv.numWorkGroups.z), arg.type);
+                    break;
 
                 // ---- DataParallel scheduling args ----
                 case CustomArgSemantic::ItersPerTile:

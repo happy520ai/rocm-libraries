@@ -180,7 +180,11 @@ namespace TensileLite
         X_MACRO(RR_MagicMultipleWgmMainBlock) \
         X_MACRO(RR_MagicShiftAndSignWgmMainBlock) \
         X_MACRO(AddressScaleZeroA) \
-        X_MACRO(ScaleBlockSizeA)
+        X_MACRO(ScaleBlockSizeA) \
+        /* Each dimension of the launched grid; unlike NumWorkGroups these are never flattened. */ \
+        X_MACRO(NumWorkGroupsX) \
+        X_MACRO(NumWorkGroupsY) \
+        X_MACRO(NumWorkGroupsZ)
 
     enum class CustomArgSemantic
     {
@@ -223,6 +227,8 @@ namespace TensileLite
         PersistentNoBatch,
         TilesYGSU,
         ComputeUnits,
+        TilesWide,
+        TilesSkinny,
         CustomGridSize_Count,
     };
 
@@ -1011,8 +1017,14 @@ namespace TensileLite
 
         size_t requiredSynchronizerSize(Problem const& problem, Hardware const& hardware) const;
 
+        void                 calculateFreeExtents(size_t& extentX,
+                                                  size_t& extentY,
+                                                  ContractionSolution::Problem const& problem) const;
         void                 calculateTiles(dim3& tiles,
                                             ContractionSolution::Problem const& problem) const;
+        void                 calculateWideSkinnyTiles(size_t& tilesWide,
+                                                      size_t& tilesSkinny,
+                                                      ContractionSolution::Problem const& problem) const;
         void                 calculateGrid(dim3&                               workGroupSize,
                                            dim3&                               numWorkGroups,
                                            ContractionSolution::Problem const& problem) const;
